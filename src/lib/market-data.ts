@@ -2,6 +2,18 @@ import type { StockQuote, CandleData, SearchResult, MarketIndex } from '@/types'
 
 const FINNHUB_KEY = process.env.FINNHUB_API_KEY || '';
 
+// yahoo-finance2 v3 requires instantiation
+let _yf: ReturnType<typeof createYF> | null = null;
+function createYF() {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const YF = require('yahoo-finance2').default;
+  return new YF({ suppressNotices: ['yahooSurvey'] });
+}
+function getYF() {
+  if (!_yf) _yf = createYF();
+  return _yf;
+}
+
 const INDEX_MAP: Record<string, { name: string; shortName: string; yahoo: string }> = {
   'NIFTY50': { name: 'NIFTY 50', shortName: 'NIFTY', yahoo: '^NSEI' },
   'BANKNIFTY': { name: 'Bank NIFTY', shortName: 'BNIFTY', yahoo: '^NSEBANK' },
@@ -59,8 +71,7 @@ export async function getQuote(symbol: string): Promise<StockQuote | null> {
   if (cached) return cached;
 
   try {
-    // Use dynamic import for yahoo-finance2 (server-side only)
-    const yahooFinance = (await import('yahoo-finance2')).default;
+    const yahooFinance = getYF();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const quote: any = await yahooFinance.quote(symbol);
 
@@ -123,7 +134,7 @@ export async function getHistory(
   interval: '1m' | '5m' | '15m' | '1h' | '1d' | '1wk' = '1d'
 ): Promise<CandleData[]> {
   try {
-    const yahooFinance = (await import('yahoo-finance2')).default;
+    const yahooFinance = getYF();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result: any = await yahooFinance.chart(symbol, { period1: getStartDate(period), interval });
 
@@ -180,7 +191,7 @@ export async function searchStocks(query: string): Promise<SearchResult[]> {
       }));
 
     // Then try yahoo search
-    const yahooFinance = (await import('yahoo-finance2')).default;
+    const yahooFinance = getYF();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const results: any = await yahooFinance.search(query);
 
