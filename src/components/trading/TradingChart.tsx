@@ -25,6 +25,7 @@ export function TradingChart() {
     if (!chartContainerRef.current) return;
 
     let destroyed = false;
+    let resizeObserver: ResizeObserver | null = null;
 
     async function initChart() {
       const lc = await import('lightweight-charts');
@@ -32,10 +33,14 @@ export function TradingChart() {
 
       // Clean up previous chart
       if (chartInstanceRef.current) {
-        chartInstanceRef.current.remove();
+        try { chartInstanceRef.current.remove(); } catch { /* already disposed */ }
+        chartInstanceRef.current = null;
       }
 
-      const chart = lc.createChart(chartContainerRef.current, {
+      const container = chartContainerRef.current;
+      const chart = lc.createChart(container, {
+        width: container.clientWidth,
+        height: container.clientHeight,
         layout: {
           background: { type: lc.ColorType.Solid, color: 'transparent' },
           textColor: '#737373',
@@ -63,15 +68,20 @@ export function TradingChart() {
 
       chartInstanceRef.current = chart;
 
-      const resizeObserver = new ResizeObserver((entries) => {
+      resizeObserver = new ResizeObserver((entries) => {
+        if (destroyed) return;
         for (const entry of entries) {
-          chart.applyOptions({
-            width: entry.contentRect.width,
-            height: entry.contentRect.height,
-          });
+          const { width, height } = entry.contentRect;
+          if (width > 0 && height > 0) {
+            try {
+              chart.applyOptions({ width, height });
+            } catch {
+              // Chart may be disposed during HMR
+            }
+          }
         }
       });
-      resizeObserver.observe(chartContainerRef.current);
+      resizeObserver.observe(container);
 
       // Fetch and render data
       const period = PERIODS[activePeriod];
@@ -131,19 +141,23 @@ export function TradingChart() {
         // chart data failed to load
       }
       setIsLoading(false);
-
-      return () => {
-        resizeObserver.disconnect();
-      };
     }
 
     initChart();
 
     return () => {
       destroyed = true;
-      if (chartInstanceRef.current) {
-        chartInstanceRef.current.remove();
-        chartInstanceRef.current = null;
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+        resizeObserver = null;
+      }
+      // Defer removal to next frame so the chart's internal rAF completes first
+      const chartToRemove = chartInstanceRef.current;
+      chartInstanceRef.current = null;
+      if (chartToRemove) {
+        requestAnimationFrame(() => {
+          try { chartToRemove.remove(); } catch { /* already disposed */ }
+        });
       }
     };
   }, [activeSymbol, activePeriod, chartType]);
